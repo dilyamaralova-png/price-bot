@@ -86,11 +86,12 @@ def format_service(name, data):
     lines = [f"<b>{name}</b>\n"]
     if "plans" in data:
         for plan, price in data["plans"]:
-            lines.append(f"{plan} — {price}")
+            lines.append(f"  {plan} — {price}")
     elif "sections" in data:
         for sec in data["sections"]:
+            lines.append(f"\n<i>{sec['label']}</i>")
             for plan, price in sec["plans"]:
-                lines.append(f"{plan} — {price}")
+                lines.append(f"  {plan} — {price}")
     return "\n".join(lines)
 
 # ── REPLY KEYBOARDS (нижняя панель) ──
