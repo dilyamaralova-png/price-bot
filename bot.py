@@ -137,8 +137,8 @@ def admin_main_inline():
 def admin_services_inline(catalog, back="adm_main"):
     buttons = []
     row = []
-    for name in catalog.keys():
-        row.append(InlineKeyboardButton(name, callback_data=f"adm_svc:{name}"))
+    for i, name in enumerate(catalog.keys()):
+        row.append(InlineKeyboardButton(name, callback_data=f"adm_svc:{i}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
@@ -147,23 +147,23 @@ def admin_services_inline(catalog, back="adm_main"):
     buttons.append([InlineKeyboardButton("◀️ Назад", callback_data=back)])
     return InlineKeyboardMarkup(buttons)
 
-def admin_plans_inline(svc_name, svc_data):
+def admin_plans_inline(svc_idx, svc_data):
     buttons = []
     if "plans" in svc_data:
         for i, (plan, price) in enumerate(svc_data["plans"]):
-            buttons.append([InlineKeyboardButton(f"{plan} — {price}", callback_data=f"adm_plan:{svc_name}||{i}||")])
+            buttons.append([InlineKeyboardButton(f"{plan} — {price}", callback_data=f"adm_plan:{svc_idx}||{i}||")])
     elif "sections" in svc_data:
-        for sec in svc_data["sections"]:
+        for si, sec in enumerate(svc_data["sections"]):
             for i, (plan, price) in enumerate(sec["plans"]):
-                buttons.append([InlineKeyboardButton(f"{plan} — {price}", callback_data=f"adm_plan:{svc_name}||{i}||{sec['label']}")])
+                buttons.append([InlineKeyboardButton(f"{plan} — {price}", callback_data=f"adm_plan:{svc_idx}||{i}||{si}")])
     buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="adm_edit")])
     return InlineKeyboardMarkup(buttons)
 
 def admin_del_services_inline(catalog):
     buttons = []
     row = []
-    for name in catalog.keys():
-        row.append(InlineKeyboardButton(name, callback_data=f"adm_del_confirm:{name}"))
+    for i, name in enumerate(catalog.keys()):
+        row.append(InlineKeyboardButton(name, callback_data=f"adm_del_confirm:{i}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
@@ -210,8 +210,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "plans" in svc_data:
             svc_data["plans"][edit["idx"]][1] = new_price
         else:
-            sec = next(s for s in svc_data["sections"] if s["label"] == edit["sec"])
-            sec["plans"][edit["idx"]][1] = new_price
+            svc_data["sections"][edit["sec_idx"]]["plans"][edit["idx"]][1] = new_price
         save_catalog(catalog)
         context.user_data["state"] = None
         context.user_data["editing"] = None
@@ -318,21 +317,22 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         elif data.startswith("adm_del_confirm:"):
-            svc_name = data[16:]
+            svc_idx = int(data[16:])
+            svc_name = list(catalog.keys())[svc_idx]
             await query.edit_message_text(
                 f"⚠️ Удалить <b>{svc_name}</b>?",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Да, удалить", callback_data=f"adm_del_do:{svc_name}")],
+                    [InlineKeyboardButton("✅ Да, удалить", callback_data=f"adm_del_do:{svc_idx}")],
                     [InlineKeyboardButton("◀️ Отмена", callback_data="adm_del_svc")]
                 ])
             )
 
         elif data.startswith("adm_del_do:"):
-            svc_name = data[11:]
-            if svc_name in catalog:
-                del catalog[svc_name]
-                save_catalog(catalog)
+            svc_idx = int(data[11:])
+            svc_name = list(catalog.keys())[svc_idx]
+            del catalog[svc_name]
+            save_catalog(catalog)
             await query.edit_message_text(
                 f"✅ Сервис <b>{svc_name}</b> удалён.",
                 parse_mode="HTML",
@@ -340,7 +340,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         elif data.startswith("adm_svc:"):
-            svc_name = data[8:]
+            svc_idx = int(data[8:])
+            svc_name = list(catalog.keys())[svc_idx]
             svc_data = catalog.get(svc_name)
             if not svc_data:
                 return
@@ -353,22 +354,24 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(
                     f"✏️ <b>{svc_name}</b>\nВыбери тариф:",
                     parse_mode="HTML",
-                    reply_markup=admin_plans_inline(svc_name, svc_data)
+                    reply_markup=admin_plans_inline(svc_idx, svc_data)
                 )
 
         elif data.startswith("adm_plan:"):
             payload = data[9:]
             parts = payload.split("||")
-            svc_name = parts[0]
+            svc_idx = int(parts[0])
             plan_idx = int(parts[1])
-            sec_label = parts[2] if len(parts) > 2 else ""
-            svc_data = catalog.get(svc_name)
+            sec_idx = int(parts[2]) if parts[2] != "" else None
+            svc_name = list(catalog.keys())[svc_idx]
+            svc_data = catalog[svc_name]
             if "plans" in svc_data:
                 plan_name, current_price = svc_data["plans"][plan_idx]
+                sec_idx = None
             else:
-                sec = next(s for s in svc_data["sections"] if s["label"] == sec_label)
+                sec = svc_data["sections"][sec_idx]
                 plan_name, current_price = sec["plans"][plan_idx]
-            context.user_data["editing"] = {"svc": svc_name, "idx": plan_idx, "sec": sec_label, "plan": plan_name}
+            context.user_data["editing"] = {"svc": svc_name, "idx": plan_idx, "sec_idx": sec_idx, "plan": plan_name}
             context.user_data["state"] = "editing_price"
             await query.edit_message_text(
                 f"✏️ <b>{svc_name}</b>\nТариф: <b>{plan_name}</b>\nТекущая цена: <b>{current_price}</b>\n\nНапиши новую цену:",
